@@ -68,6 +68,26 @@
   .boot-txt{font-size:12px;color:#ffb347;letter-spacing:2px;text-align:center;
     font-family:var(--font-serif);animation:bootPulse 1.6s ease-in-out infinite}
   @keyframes bootPulse{0%,100%{opacity:.5}50%{opacity:1}}
+  /* 装载进度条 */
+  .boot-bar{width:210px;height:5px;margin:16px auto 10px;border-radius:99px;
+    background:rgba(255,122,60,.14);overflow:hidden;position:relative;
+    box-shadow:inset 0 0 0 1px rgba(255,140,80,.18)}
+  .boot-bar i{display:block;height:100%;width:0%;border-radius:99px;
+    background:linear-gradient(90deg,#ff7a3c,#ffd166 60%,#ff3d6e);
+    box-shadow:0 0 12px rgba(255,140,60,.75);
+    transition:width .28s cubic-bezier(.16,1,.3,1)}
+  .boot-bar::after{content:'';position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);
+    transform:translateX(-100%);animation:bootShine 1.5s linear infinite}
+  @keyframes bootShine{to{transform:translateX(100%)}}
+  .boot-pct{font-size:11px;color:var(--muted);letter-spacing:2px;text-align:center;
+    font-family:var(--font-num);margin-bottom:14px}
+  .boot-pct b{color:#ffd166;font-weight:800}
+  @media (prefers-reduced-motion:reduce){
+    .boot-bar::after{animation:none}
+    .boot-ring{animation:none}
+    .boot-txt{animation:none}
+  }
   .topstats{margin-left:auto;display:flex;gap:16px;font-size:11px;color:var(--muted)}  .topstats b{color:var(--text);font-size:15px;display:block;font-variant-numeric:tabular-nums}
   .topstats .gold b{color:var(--gold)}
 
@@ -506,7 +526,7 @@
 </style>
 </head>
 <body>
-<div id="boot"><div class="boot-ring"></div><div class="boot-txt">正在装载 10000 名武将数据…</div></div>
+<div id="boot"><div class="boot-ring"></div><div class="boot-txt" id="bootTxt">正在装载 10000 名武将数据…</div><div class="boot-bar"><i id="bootFill"></i></div><div class="boot-pct" id="bootPct"><b>0</b>%</div></div>
 <canvas id="bg"></canvas>
 <div class="vig"></div>
 <div class="scan"></div>
@@ -712,32 +732,97 @@
 <script>
 (function(){
   function b64bytes(b){var s=atob(b),a=new Uint8Array(s.length);for(var i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
+
+  /* ---------- 装载进度 ---------- */
+  var bootFill=document.getElementById('bootFill');
+  var bootPct=document.getElementById('bootPct');
+  var bootTxt=document.getElementById('bootTxt');
+  var curPct=0;
+  function setProgress(p, label){
+    p=Math.max(curPct, Math.min(100, p));   // 只增不减，避免回跳
+    curPct=p;
+    if(bootFill) bootFill.style.width=p.toFixed(1)+'%';
+    if(bootPct) bootPct.innerHTML='<b>'+Math.round(p)+'</b>%';
+    if(label && bootTxt) bootTxt.textContent=label;
+  }
+  /* 在等待异步解压时，用缓动“预期进度”填补视觉空档（最多推进到 55%）*/
+  var failed=false;
+  var trickle=setInterval(function(){
+    if(failed || curPct>=55) return;
+    setProgress(curPct + Math.max(0.4,(55-curPct)*0.045));
+  }, 90);
+  /* 统一的失败处理：停掉进度、显示原因，避免卡在进度条上 */
+  function fail(msg){
+    failed=true; clearInterval(trickle);
+    if(bootFill){
+      bootFill.style.width='100%';
+      bootFill.style.background='linear-gradient(90deg,#ff3d6e,#b0334f)';
+      bootFill.style.boxShadow='0 0 12px rgba(255,61,110,.7)';
+    }
+    if(bootPct) bootPct.innerHTML='<b style="color:#ff6b9d">✕</b>';
+    if(bootTxt) bootTxt.innerHTML = msg +
+      '<br><span style="font-size:10px;color:#7d879f;letter-spacing:0">请刷新页面重试</span>';
+  }
+
+  try{
+  setProgress(4, '正在读取压缩数据…');
   var el=document.getElementById('gdata');
   var ds=new DecompressionStream('gzip');
   var stream=new Blob([b64bytes(el.textContent.trim())]).stream().pipeThrough(ds);
+  setProgress(18, '正在解压数据…');
   new Response(stream).text().then(function(txt){
+    clearInterval(trickle);
+    setProgress(62, '正在解析武将数据…');
     var D=JSON.parse(txt);
     var P=D.P,I=D.I,N=D.N,T=D.T,F=D.F,W=D.W,H=D.H,R=D.R,B=D.B,S=D.S,C=D.C,L=D.L,K=D.K,T2=D.T2,M=D.M;
     var RM={1:['传说','#ffd166',5],2:['史诗','#c084fc',4],3:['稀有','#60a5fa',3],4:['精良','#4ade80',2],5:['普通','#94a3b8',1]};
     var FM={shu:['蜀','#e05555'],wei:['魏','#4a7fe0'],wu:['吴','#38b48b'],shen:['神','#ffd166'],qun:['群','#b07cd8']};
     var n=I.length,out=new Array(n);
-    for(var i=0;i<n;i++){var r=R[i],f=P[F[i]],rm=RM[r],fm=FM[f];
-      var g={id:I[i],name:P[N[i]],title:P[T[i]],faction:f,factionName:fm[0],factionColor:fm[1],
-        rarity:r,rarityKey:rm[0],stars:rm[2],color:rm[1],hp:H[i],hpMax:H[i],skills:[]};
-      var ks=K[i];
-      for(var x=0;x<ks.length;x++){var e=ks[x],fl=e[5];
-        var o={name:P[e[0]],type:P[e[1]],kw:P[e[2]],text:P[e[3]],cost:e[4],complex:!!(fl&1)};
-        if(fl&2){o.ultra=!!(fl&16);}
-        o.mark=e[6]?P[e[6]]:null;
-        if(fl&8){o.stackGroup=P[e[7]];}
-        g.skills.push(o);}
-      g.skillBudget=B[i];g.skillSpent=S[i];g.complexCount=C[i];g.textLen=L[i];
-      if(T2[i]){g.stack=P[T2[i]];}
-      if(M[i].length){var mm=new Array(M[i].length);for(var q=0;q<M[i].length;q++)mm[q]=P[M[i][q]];g.stackMarks=mm;}
-      g.power=W[i];out[i]=g;}
-    window.GENERALS=out;
-    window.__bootGame();
-  }).catch(function(e){ console.error('数据解压失败',e); var b=document.getElementById('boot'); if(b) b.textContent='数据加载失败：'+e.message; });
+
+    /* 分块构建：每块处理 CHUNK 条，然后让出一帧，
+       这样进度条才能真正地动起来（同步循环会在一帧内跑完，只看到跳变）。*/
+    var CHUNK=400, i=0;
+    setProgress(62, '正在构建 '+n+' 名武将…');
+
+    function buildChunk(){
+      var end=Math.min(i+CHUNK, n);
+      for(; i<end; i++){
+        var r=R[i],f=P[F[i]],rm=RM[r],fm=FM[f];
+        var g={id:I[i],name:P[N[i]],title:P[T[i]],faction:f,factionName:fm[0],factionColor:fm[1],
+          rarity:r,rarityKey:rm[0],stars:rm[2],color:rm[1],hp:H[i],hpMax:H[i],skills:[]};
+        var ks=K[i];
+        for(var x=0;x<ks.length;x++){var e=ks[x],fl=e[5];
+          var o={name:P[e[0]],type:P[e[1]],kw:P[e[2]],text:P[e[3]],cost:e[4],complex:!!(fl&1)};
+          if(fl&2){o.ultra=!!(fl&16);}
+          o.mark=e[6]?P[e[6]]:null;
+          if(fl&8){o.stackGroup=P[e[7]];}
+          g.skills.push(o);}
+        g.skillBudget=B[i];g.skillSpent=S[i];g.complexCount=C[i];g.textLen=L[i];
+        if(T2[i]){g.stack=P[T2[i]];}
+        if(M[i].length){var mm=new Array(M[i].length);for(var q=0;q<M[i].length;q++)mm[q]=P[M[i][q]];g.stackMarks=mm;}
+        g.power=W[i];out[i]=g;
+      }
+      setProgress(62+35*(i/n), '正在构建 '+i+' / '+n+' 名武将…');
+      if(i<n){
+        /* 优先用 requestAnimationFrame 让出一帧；后台标签页里 rAF 不触发，用 timeout 兜底 */
+        if(document.hidden) setTimeout(buildChunk, 0);
+        else requestAnimationFrame(function(){ setTimeout(buildChunk, 0); });
+      }else{
+        finish();
+      }
+    }
+
+    function finish(){
+      setProgress(97, '正在初始化界面…');
+      window.GENERALS=out;
+      requestAnimationFrame(function(){
+        window.__bootGame();
+      });
+    }
+
+    buildChunk();
+  }).catch(function(e){ console.error('数据解压失败', e); fail('数据加载失败：' + (e && e.message ? e.message : e)); });
+  }catch(e){ console.error('装载异常', e); fail('数据加载失败：' + (e && e.message ? e.message : e)); }
 })();
 </script>
 <script>
@@ -2189,7 +2274,15 @@ buildFilters(); buildRankFilters(); refreshTop(); renderCodex(); renderScConfig(
 if($('#logoSub')) $('#logoSub').textContent=G.length+' GENERALS · COMPLEX SAN GUO SHA MECHANICS';
 // 隐藏启动装载层（下一帧隐藏，保证首屏已渲染）
 requestAnimationFrame(()=>requestAnimationFrame(()=>{
-  const boot=$('#boot'); if(boot){ boot.classList.add('done'); setTimeout(()=>boot.remove&&boot.remove(),520); }
+  const boot=$('#boot');
+  if(boot){
+    // 收尾：进度推到 100% 后再淡出，避免进度条突然消失
+    const bf=document.getElementById('bootFill'), bp=document.getElementById('bootPct'), bt=document.getElementById('bootTxt');
+    if(bf) bf.style.width='100%';
+    if(bp) bp.innerHTML='<b>100</b>%';
+    if(bt) bt.textContent='装载完成 · 共 '+G.length+' 名武将';
+    setTimeout(()=>{ boot.classList.add('done'); setTimeout(()=>boot.remove&&boot.remove(),520); }, 260);
+  }
 }));
 if(firstRun){
   saveState();
