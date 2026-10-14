@@ -81,6 +81,44 @@
 
   main{flex:1;overflow-y:auto;padding-bottom:22px;-webkit-overflow-scrolling:touch}
   main::-webkit-scrollbar{width:6px}main::-webkit-scrollbar-thumb{background:rgba(255,122,60,.3);border-radius:3px}
+  /* ===== 武将排行 ===== */
+  .rk-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .rk-stat{font-size:11px;color:var(--muted);letter-spacing:1px;margin:2px 0 10px;
+    display:flex;gap:14px;flex-wrap:wrap}
+  .rk-stat b{color:var(--gold);font-family:var(--font-num)}
+  .rank-list{display:flex;flex-direction:column;gap:8px}
+  .rk-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;
+    background:var(--panel);border:1px solid var(--border);cursor:pointer;position:relative;
+    overflow:hidden;transition:transform var(--t-fast) var(--ez),border-color var(--t-fast)}
+  .rk-item:active{transform:scale(.985)}
+  .rk-item:hover{border-color:var(--rc)}
+  .rk-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--rc)}
+  .rk-no{flex:0 0 38px;text-align:center;font-family:var(--font-num);font-weight:900;
+    font-size:15px;color:var(--muted)}
+  .rk-item.top1 .rk-no{color:#ffd166;text-shadow:0 0 12px rgba(255,209,102,.6)}
+  .rk-item.top2 .rk-no{color:#d8dee9}
+  .rk-item.top3 .rk-no{color:#e0a06a}
+  .rk-item.top1{background:linear-gradient(90deg,rgba(255,209,102,.13),var(--panel) 45%)}
+  .rk-av{flex:0 0 40px;height:40px;border-radius:10px;display:grid;place-items:center;
+    font-size:15px;font-weight:800;color:#fff;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+  .rk-mid{flex:1 1 auto;min-width:0}
+  .rk-nm{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rk-tt{font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .rk-right{flex:0 0 auto;text-align:right}
+  .rk-val{font-family:var(--font-num);font-weight:900;font-size:16px;color:var(--gold)}
+  .rk-sub{font-size:10px;color:var(--muted);margin-top:2px}
+  .rk-pill{display:inline-block;font-size:9px;padding:1px 6px;border-radius:99px;
+    border:1px solid var(--border);color:var(--muted);margin-left:6px;vertical-align:middle}
+  .rk-bar2{height:3px;border-radius:2px;background:rgba(255,255,255,.08);margin-top:5px;overflow:hidden}
+  .rk-bar2 i{display:block;height:100%;border-radius:2px;
+    background:linear-gradient(90deg,var(--rc,#ff7a3c),transparent)}
+  @media (max-width:400px){
+    .rk-no{flex-basis:30px;font-size:13px}
+    .rk-av{flex-basis:34px;height:34px;font-size:13px}
+    .rk-val{font-size:14px}
+  }
   .view{display:none;animation:fade .3s}
   .view.active{display:block}
   @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
@@ -494,6 +532,7 @@
     <span id="tabInd"></span>
     <button class="active" data-view="v-codex">武将图鉴</button>
     <button data-view="v-showcase">随机展示</button>
+    <button data-view="v-rank">武将排行</button>
   </nav>
 
   <main>
@@ -642,6 +681,25 @@
       <div class="raceline"><span id="codexCount"></span><span id="codexShown"></span></div>
       <div style="font-size:11px;color:var(--muted);letter-spacing:1px;margin:2px 0 10px">💡 轻点卡片看完整详情　·　长按卡片快速预览技能简述</div>
       <div id="codex" class="grid"></div>
+    </section>
+
+    <!-- 武将排行 -->
+    <section id="v-rank" class="view">
+      <div class="rk-bar">
+        <select class="chip" id="rkMetric"></select>
+        <select class="chip" id="rkFaction"></select>
+        <select class="chip" id="rkRarity"></select>
+        <select class="chip" id="rkTop">
+          <option value="20">前 20</option>
+          <option value="50" selected>前 50</option>
+          <option value="100">前 100</option>
+          <option value="200">前 200</option>
+          <option value="0">全部</option>
+        </select>
+        <button class="chip" id="rkOwned">仅已收集</button>
+      </div>
+      <div class="rk-stat" id="rkStat"></div>
+      <div id="rank" class="rank-list"></div>
     </section>
 
     <!-- 阵容已移除 · 功能并入随机展示 -->
@@ -1868,6 +1926,135 @@ function decorateName(el, g){
 /* ============================================================
    事件
    ============================================================ */
+
+/* ============================================================
+   武将排行
+   ============================================================ */
+const RK_METRICS=[
+  {k:'power',     label:'战力',      v:g=>g.power,        sub:g=>`复杂技 ${g.complexCount}`},
+  {k:'complex',   label:'复杂技数',  v:g=>g.complexCount, sub:g=>`战力 ${g.power}`},
+  {k:'textLen',   label:'技能总字数',v:g=>g.textLen,      sub:g=>`战力 ${g.power}`},
+  {k:'skillCount',label:'技能个数',  v:g=>g.skills.length,sub:g=>`战力 ${g.power}`},
+  {k:'skillSpent',label:'技能点消耗',v:g=>g.skillSpent,   sub:g=>`上限 ${g.skillBudget}`},
+  {k:'hp',        label:'体力上限',  v:g=>g.hpMax,        sub:g=>`战力 ${g.power}`},
+  {k:'avgCost',   label:'平均技能消耗',v:g=>g.skills.length?g.skillSpent/g.skills.length:0, sub:g=>`战力 ${g.power}`, frac:1},
+  {k:'markCount', label:'标记技数量',v:g=>g.skills.filter(s=>s.mark).length, sub:g=>`战力 ${g.power}`},
+];
+const rkFilters={metric:'power',faction:'',rarity:'',top:50,ownedOnly:false};
+let rkNeedBuild=true;
+
+function buildRankFilters(){
+  $('#rkMetric').innerHTML=RK_METRICS.map(m=>`<option value="${m.k}">按${m.label}</option>`).join('');
+  const facs=[...new Set(G.map(g=>g.faction))];
+  $('#rkFaction').innerHTML=`<option value="">全部势力</option>`+
+    facs.map(f=>{const g=G.find(x=>x.faction===f);return `<option value="${f}">${g.factionName}</option>`;}).join('');
+  $('#rkRarity').innerHTML=`<option value="">全部稀有度</option>`+
+    [1,2,3,4,5].map(r=>`<option value="${r}">${RARITY_META[r].key}</option>`).join('');
+}
+
+/* 计算排行；返回 {list, metric, pool} */
+function rankData(){
+  const m=RK_METRICS.find(x=>x.k===rkFilters.metric)||RK_METRICS[0];
+  let pool=G.filter(g=>{
+    if(rkFilters.faction && g.faction!==rkFilters.faction) return false;
+    if(rkFilters.rarity && String(g.rarity)!==String(rkFilters.rarity)) return false;
+    if(rkFilters.ownedOnly && !(state.owned[g.id]>0)) return false;
+    return true;
+  });
+  const list=pool.slice().sort((a,b)=>m.v(b)-m.v(a)||b.power-a.power||a.id.localeCompare(b.id));
+  return {list,metric:m,pool};
+}
+
+let rkList=[], rkShown=0; const RK_PAGE=60;
+
+function renderRank(){
+  const {list,metric}=rankData();
+  const box=$('#rank');
+
+  // 统计条
+  const all=G.length;
+  $('#rkStat').innerHTML = list.length
+    ? `<span>参与排名 <b>${list.length}</b> / ${all}</span>`+
+      `<span>榜首 <b>${list[0].name}</b>（${metric.label} ${fmtVal(metric,list[0])}）</span>`+
+      (list.length>1?`<span>中位 <b>${fmtVal(metric,list[Math.floor(list.length/2)])}</b></span>`:'')+
+      `<span>平均 <b>${fmtVal(metric,{__avg:list.reduce((a,g)=>a+metric.v(g),0)/list.length})}</b></span>`
+    : '<span>没有符合条件的武将</span>';
+
+  if(!list.length){
+    box.innerHTML=`<div class="empty"><span class="big">☠</span>没有符合条件的武将<br>换个筛选试试</div>`;
+    rkList=[]; rkShown=0;
+    return;
+  }
+  rkList=list; rkShown=0;
+  box.innerHTML='';
+  loadMoreRank();
+}
+
+function loadMoreRank(){
+  const box=$('#rank');
+  const old=$('#rkMoreBar'); if(old) old.remove();
+
+  const metric=RK_METRICS.find(x=>x.k===rkFilters.metric)||RK_METRICS[0];
+  const cap = rkFilters.top>0 ? Math.min(rkFilters.top, rkList.length) : rkList.length;
+  const end = Math.min(rkShown+RK_PAGE, cap);
+  const max = metric.v(rkList[0])||1;   // 用榜首值做进度条基准，保证 100% 恒为满格
+
+  let html='';
+  for(let i=rkShown;i<end;i++){
+    const g=rkList[i], rm=RARITY_META[g.rarity], rank=i+1;
+    const cls=rank===1?' top1':rank===2?' top2':rank===3?' top3':'';
+    const pct=Math.max(6,Math.min(100,(metric.v(g)/max)*100));
+    const sub=metric.sub?metric.sub(g):'';
+    html+=`<div class="rk-item${cls}" data-id="${g.id}" style="--rc:${rm.color}">
+      <div class="rk-no">${rank}</div>
+      <div class="rk-av" style="background:linear-gradient(140deg,${g.factionColor},#0a0d18)">${g.factionName}</div>
+      <div class="rk-mid">
+        <div class="rk-nm">${g.name}<span class="rk-pill">${rm.key}</span></div>
+        <div class="rk-tt">${g.title} · ${g.skills.length} 技 · 战力 ${g.power}</div>
+        <div class="rk-bar2"><i style="width:${pct}%"></i></div>
+      </div>
+      <div class="rk-right">
+        <div class="rk-val">${fmtVal(metric,g)}</div>
+        <div class="rk-sub">${sub}</div>
+      </div>
+    </div>`;
+  }
+  box.insertAdjacentHTML('beforeend', html);
+  rkShown=end;
+
+  if(rkShown<cap){
+    box.insertAdjacentHTML('beforeend',
+      `<div id="rkMoreBar" class="loadmore"><button class="btn ghost" id="rkMoreBtn">加载更多（已显示 ${rkShown} / ${cap}）</button></div>`);
+    const btn=$('#rkMoreBtn');
+    if(btn) btn.addEventListener('click',loadMoreRank);
+  }else if(rkFilters.top>0 && rkList.length>cap){
+    box.insertAdjacentHTML('beforeend',
+      `<div style="font-size:11px;color:var(--muted);text-align:center;padding:10px 0">仅显示前 ${cap} 名 · 共 ${rkList.length} 名，可切换「全部」查看</div>`);
+  }
+}
+
+function fmtVal(metric,g){
+  const v=g.__avg!==undefined?g.__avg:metric.v(g);
+  return metric.frac?v.toFixed(metric.frac):String(Math.round(v));
+}
+function bindRank(){
+  $('#rkMetric').addEventListener('change',e=>{rkFilters.metric=e.target.value;renderRank();});
+  $('#rkFaction').addEventListener('change',e=>{rkFilters.faction=e.target.value;renderRank();});
+  $('#rkRarity').addEventListener('change',e=>{rkFilters.rarity=e.target.value;renderRank();});
+  $('#rkTop').addEventListener('change',e=>{rkFilters.top=+e.target.value;renderRank();});
+  $('#rkOwned').addEventListener('click',e=>{
+    rkFilters.ownedOnly=!rkFilters.ownedOnly;
+    e.target.classList.toggle('on',rkFilters.ownedOnly);
+    e.target.textContent=rkFilters.ownedOnly?'仅已收集':'显示全部';
+    renderRank();
+  });
+  // 点条目打开详情
+  $('#rank').addEventListener('click',e=>{
+    const it=e.target.closest('.rk-item'); if(!it) return;
+    openDetail(it.dataset.id);
+  });
+}
+
 function bind(){
   $$('nav.tabs button').forEach(b=>b.addEventListener('click',()=>{
     $$('nav.tabs button').forEach(x=>x.classList.remove('active'));
@@ -1877,8 +2064,10 @@ function bind(){
     moveTabInd(true);
     if(prev){ prev.classList.add('leaving'); setTimeout(()=>prev.classList.remove('leaving'),300); }
     if(b.dataset.view==='v-showcase') setTimeout(mgEnsure, 60);
+    if(b.dataset.view==='v-rank') setTimeout(()=>renderRank(), 0);
   }));
   setTimeout(()=>moveTabInd(false),80);
+  bindRank();
   addEventListener('resize',()=>moveTabInd(false));
   let qTimer=null;
   $('#q').addEventListener('input',e=>{ clearTimeout(qTimer); qTimer=setTimeout(()=>{filters.q=e.target.value;renderCodex();},120); });
@@ -1996,7 +2185,7 @@ function bind(){
    ============================================================ */
 const firstRun=!localStorage.getItem(KEY);
 loadState();
-buildFilters(); refreshTop(); renderCodex(); renderScConfig(); renderHistory(); renderScStats([]); bind();
+buildFilters(); buildRankFilters(); refreshTop(); renderCodex(); renderScConfig(); renderHistory(); renderScStats([]); renderRank(); bind();
 if($('#logoSub')) $('#logoSub').textContent=G.length+' GENERALS · COMPLEX SAN GUO SHA MECHANICS';
 // 隐藏启动装载层（下一帧隐藏，保证首屏已渲染）
 requestAnimationFrame(()=>requestAnimationFrame(()=>{
